@@ -24,27 +24,34 @@ var db = mongoose.connection;
 db.on('error', console.error.bind(console, 'connection error:'));
 
 // schema
+// sensor to store temp anh humid
 var sensorSchemar = mongoose.Schema({
     device_id : String,
     temp : String,
     humid : String,
     time : Date
 });
+// flag for auto mode
 var flagSchemar = mongoose.Schema({
     flag: Boolean
 });
+// trigger's value for auto mode 
 var autoSchemar = mongoose.Schema({
     xhigh: Number,
     high: Number,
     medium: Number,
     low: Number
 });
-
+// model
 const Flag = mongoose.model('Flag',flagSchemar, 'flag');
 const Auto = mongoose.model('Auto', autoSchemar, 'auto');
+
 // var flagauto = new Flag({flag: true});
 // flagauto.save((error, value) => {});
+
 const Sensor = mongoose.model('Sensor',sensorSchemar,'sensor');
+
+// insert data to database 
 function insert(id, temp, humid) {
     var value1 = new Sensor({device_id:id,temp:temp , humid:humid, time: Date.now()});
     value1.save((error, value) => {
@@ -52,6 +59,7 @@ function insert(id, temp, humid) {
         console.log(value , 'stored to sensor collection');
     })
 }
+//publish msg to topic
 function publish(topic,msg){
     //msg is json
     console.log("publishing",msg);
@@ -76,22 +84,22 @@ if (!Auto.exists({})) {
     newSetting.save((error,value) => {});
     console.log("added initial setting.");
 }
-else {
+else { // else update current setting to initial setting
     Auto.updateOne({},{xhigh: xhigh, high:high, medium: medium, low: low},(error, value)=>{
         if (!error) console.log('updated setting');
     })
 }
 
+// subscribe to topic and listen for messages
 client.on('message',async (topic, message, packet) =>{
      try {
         sensorValue = JSON.parse(message)[0];
         console.log("message is",sensorValue);
         console.log("topic is ",topic);
         console.log('temperature is ',sensorValue['values'][0]);
-        console.log("here")
         insert(sensorValue['device_id'],sensorValue['values'][0],sensorValue['values'][1]);
         var auto = await CheckFlag();
-        if (auto === true) {
+        if (auto === true) {//  if auto mode==true start auto publishing 
             var result = await getSetting();
             var xhigh = result[0];
             var high = result[1];
@@ -124,26 +132,30 @@ client.on('message',async (topic, message, packet) =>{
         console.log("fail");
     }
 });
-
+// get current temp = last record on database
 async function FindLast () {
     let value =await Sensor.findOne().sort('-time').select('-_id temp humid');
     return value;
 }
+// check if auto mode is on/off
 async function CheckFlag() {
     let flag = await Flag.findOne();
     console.log('flag is ',flag['flag']);
     return flag['flag'];
 }
+// turn on/off auto mode
 async function Setflag(value) {
     await Flag.updateOne({},{flag : value},(error, value)=>{
         if (!error) console.log('flag is changed');
     });
 }
+// get curent settings from auto mode
 async function getSetting() {
     let setting = await Auto.findOne();
     console.log('setting is ',setting);
     return [setting['xhigh'],setting['high'],setting['medium'],setting['low']];
 }
+// set current settings
 async function setSetting(xhigh, high, medium, low) {
     await Auto.updateOne({},{xhigh: xhigh, high:high, medium: medium, low: low},(error, value)=>{
         if (!error) console.log('updated setting');
@@ -152,6 +164,7 @@ async function setSetting(xhigh, high, medium, low) {
 async function getHistory() {
 
 }
+
 async function setTimer(value) {
     await Setflag(false);
     publish("Topic/Speaker",value);
@@ -169,12 +182,11 @@ app.use(bodyParser.json())
 
 Setflag(true);
 const PORT = process.env.PORT || 8080;
-app.get('/', (req,res) => res.send("Hello!"));
-
-
 app.get('/',async (req,res) => {
     res.send("hello");
 });
+
+// requests from client
 app.post('/setting',async (req,res) => {
     console.log("recieving new setting from a client...");
     console.log(req.body);
@@ -193,14 +205,14 @@ app.post('/setting',async (req,res) => {
 app.get('/tempHumid',async (req,res) => {
     console.log("recieving tempHumid request from a client...");
     let result = await FindLast();
-    res.send({temp:result['temp'],humid:result['humid']});
+    res.send({temp:result['temp'],humid:result['humid']}); // response current temp and hunid to client request 
     console.log(result['temp'],result['humid']," is delivered");
 });
 app.get('/autoStatus', async (req,res) => {
     console.log("recieving autoStatus request from a client...");
     let autoStatus = await CheckFlag();
     value = autoStatus?"ON":"OFF";
-    res.send(value.toString());
+    res.send(value.toString()); // reponse auto mode status
     console.log(value.toString()," is delivered");
 });
 app.get('/stop',async (req, res) => {
@@ -220,7 +232,7 @@ app.get('/getSetting', async (req,res) => {
     var high = result[1];
     var medium = result[2];
     var low = result[3];
-    res.send({xhigh: xhigh, high:high, medium:medium, low:low});
+    res.send({xhigh: xhigh, high:high, medium:medium, low:low}); //response current settings for auto mode
 });
 app.post('/setSpeaker', async (req,res) => {
     console.log("receving setSpeaker request from a client...");
